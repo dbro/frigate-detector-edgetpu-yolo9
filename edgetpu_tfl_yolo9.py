@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-DETECTOR_KEY = "edgetpu_yolo9"
+DETECTOR_KEY = "edgetpu_yolo9_cv"
 
 ##### YOLO CODE HERE
 
@@ -41,26 +41,6 @@ def xywh2xyxy(x):
     y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
     y[..., 3] = x[..., 1] + x[..., 3] / 2  # bottom right y
     return y
-
-def box_iou(box1, box2, eps=1e-7):
-    """
-    Calculate intersection-over-union (IoU) of boxes.
-    Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
-
-    Args:
-        box1 (numpy array): A numpy array of shape (N, 4) representing N bounding boxes.
-        box2 (numpy array): A numpy array of shape (M, 4) representing M bounding boxes.
-        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
-
-    Returns:
-        (numpy array): An NxM numpy array containing the pairwise IoU values for every element in box1 and box2.
-    """
-
-    (a1, a2), (b1, b2) = np.split(np.expand_dims(box1, axis=1), 2), np.split(np.expand_dims(box2, axis=1), 2)
-    inter = np.clip((np.min(a2, b2) - np.max(a1, b1)), a_min = 0, a_max = None) * 2
-
-    # IoU = inter / (area1 + area2 - inter)
-    return inter / (((a2 - a1) * 2)  + ((b2 - b1) * 2) - inter + eps)
 
 def nms(boxes, overlap_threshold=0.5, min_mode=False):
     x1 = boxes[:, 0]
@@ -91,6 +71,31 @@ def nms(boxes, overlap_threshold=0.5, min_mode=False):
         inds = np.where(overlap <= overlap_threshold)[0]
         index_array = index_array[inds + 1]
     return keep
+
+def box_iou(box1, box2, eps=1e-7):
+    """
+    Calculate intersection-over-union (IoU) of boxes.
+    Both sets of boxes are expected to be in (x1, y1, x2, y2) format.
+
+    Args:
+        box1 (numpy array): A numpy array of shape (N, 4) representing N bounding boxes.
+        box2 (numpy array): A numpy array of shape (M, 4) representing M bounding boxes.
+        eps (float, optional): A small value to avoid division by zero. Defaults to 1e-7.
+
+    Returns:
+        (numpy array): An NxM numpy array containing the pairwise IoU values for every element in box1 and box2.
+    """
+    x1 = np.maximum(box1[:, None, 0], box2[:, 0])  # Intersection x1
+    y1 = np.maximum(box1[:, None, 1], box2[:, 1])  # Intersection y1
+    x2 = np.minimum(box1[:, None, 2], box2[:, 2])  # Intersection x2
+    y2 = np.minimum(box1[:, None, 3], box2[:, 3])  # Intersection y2
+
+    inter_area = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)  # Intersection area
+    box1_area = (box1[:, 2] - box1[:, 0]) * (box1[:, 3] - box1[:, 1])  # Box1 area
+    box2_area = (box2[:, 2] - box2[:, 0]) * (box2[:, 3] - box2[:, 1])  # Box2 area
+    union_area = box1_area[:, None] + box2_area - inter_area  # Union area
+
+    return inter_area / (union_area + eps)
 
 def non_max_suppression(
         prediction,
@@ -137,8 +142,7 @@ def non_max_suppression(
     """
     assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
     assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
-    if isinstance(prediction, (
-            list, tuple)):  # YOLOv8 model in validation model, output = (inference_out, loss_out)
+    if isinstance(prediction, (list, tuple)):  # YOLOv8 model in validation model, output = (inference_out, loss_out)
         prediction = prediction[0]  # select only inference output
     output = []
     bs = prediction.shape[0]  # batch size
@@ -160,7 +164,6 @@ def non_max_suppression(
 
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
-        # x[((x[:, 2:4] < min_wh) | (x[:, 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
 
         # Cat apriori labels if autolabelling
@@ -168,54 +171,75 @@ def non_max_suppression(
             lb = labels[xi]
             v = np.zeros((len(lb), nc + nm + 5))
             v[:, :4] = lb[:, 1:5]  # box
-            v[range(len(lb)), lb[:, 0].long() + 4] = 1.0  # cls
+            v[range(len(lb)), lb[:, 0].astype(int) + 4] = 1.0  # cls
             x = np.concatenate((x, v), axis=0)
 
         # If none remain process next image
         if not x.shape[0]:
+            output.append(np.array([]))
             continue
 
-        box, mask = np.array_split(x, [nc], axis=0)
-        box, cls = np.array_split(x, [4], axis=1)
-        mask = mask.reshape(box.shape[0], 0)
+        box, cls = np.split(x, [4], axis=1)
+        mask = x[:, mi:] if nm > 0 else np.zeros((x.shape[0], 0))
 
         if multi_label:
             i, j = np.where(cls > conf_thres)
-            x = np.concatenate((box[i], x[i, 4 + j, None], j[:, None], mask[i]), 1)
+            x = np.concatenate((box[i], cls[i, j][:, None], j[:, None], mask[i]), axis=1)
         else:  # best class only
-            conf = np.max(cls, axis=1)
-            conf = conf.reshape(conf.shape[0], 1)
-            j = np.argmax(cls[:, :], axis=1, keepdims=True)
+            conf = np.max(cls, axis=1, keepdims=True)
+            j = np.argmax(cls, axis=1, keepdims=True)
             x = np.concatenate((box, conf, j, mask), axis=1)
+
+        # Filter by class
+        if classes is not None:
+            x = x[np.isin(x[:, 5], classes)]
 
         # Check shape
         n = x.shape[0]  # number of boxes
         if not n:  # no boxes
+            output.append(np.array([]))
             continue
         if n > max_nms:  # excess boxes
-            x = x[x[:, 4].argsort(descending=True)[
-                :max_nms]]  # sort by confidence and remove excess boxes
+            x = x[x[:, 4].argsort()[::-1][:max_nms]]  # sort by confidence and remove excess boxes
 
-        # Batched NMS
+        # Batched NMS using OpenCV
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
-        boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
+        boxes = x[:, :4] + c  # boxes (offset by class for agnostic NMS)
+        scores = x[:, 4]  # scores
 
-        scores = scores.reshape(scores.shape[0], 1)
-        con = np.concatenate((boxes, scores), axis=1)
-        keep_boxes = nms(con, iou_thres)  # NMS
-        keep_boxes = keep_boxes[:max_det]  # limit detections
+        # Convert boxes to format expected by cv2.dnn.NMSBoxes (x1, y1, x2, y2)
+        boxes = boxes.astype(np.float32)
+        scores = scores.astype(np.float32)
+
+        # Run OpenCV NMS
+        indices = cv2.dnn.NMSBoxes(
+            boxes.tolist(),
+            scores.tolist(),
+            score_threshold=conf_thres,
+            nms_threshold=iou_thres
+        )
+        indices = np.array(indices).flatten()
+
+        # Limit detections
+        indices = indices[:max_det]
+
+        # Apply merge-NMS if enabled
         if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
-            # Update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
-            iou = box_iou(boxes[keep_boxes], boxes) > iou_thres  # iou matrix
+            iou = box_iou(boxes[indices], boxes) > iou_thres  # iou matrix
             weights = iou * scores[None]  # box weights
-            x[i, :4] = np.multiply(weights, x[:, :4]).float() / weights.sum(1,
-                                                                            keepdim=True)  # merged boxes
+            x[indices, :4] = np.matmul(weights, boxes) / weights.sum(1, keepdims=True)  # merged boxes
             if redundant:
-                keep_boxes = keep_boxes[iou.sum(1) > 1]  # require redundancy
-        for k in keep_boxes:
-            output.append(x[k])
+                indices = indices[iou.sum(1) > 1]  # require redundancy
+
+        # Collect kept boxes
+        if len(indices) > 0:
+            output.append(x[indices])
+        else:
+            output.append(np.array([]))
+
         if (time.time() - t) > time_limit:
             break  # time limit exceeded
+
     return output
 
 def get_boxes_from_yolo_output(prediction, conf_thres=0.4):
@@ -367,19 +391,23 @@ class EdgeTpuTfl(DetectionApi):
             detections = non_max_suppression(y, conf_thres=self.min_score, iou_thres=self.min_iou)
         else:
             detections = get_boxes_from_yolo_output(y, conf_thres=self.min_score)
-        
+
         boxes = []
         class_ids = []
         scores = []
 
         for det in detections:
-            boxes.append(
-                [det[1] / model_height,
-                det[0] / model_width,
-                det[3] / model_height,
-                det[2] / model_width])
-            scores.append(det[4])
-            class_ids.append(det[5])
+            if det.size == 0 or len(det) == 0:  # Skip empty detections
+                continue
+            for box in det:  # Iterate over each detection
+                boxes.append([
+                    box[1] / model_height,  # y1
+                    box[0] / model_width,   # x1
+                    box[3] / model_height,  # y2
+                    box[2] / model_width    # x2
+                ])
+                scores.append(box[4])
+                class_ids.append(box[5])
 
         return boxes, scores, class_ids, len(boxes)
 
