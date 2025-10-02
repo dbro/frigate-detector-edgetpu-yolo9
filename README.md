@@ -148,6 +148,7 @@ This project is open-source. If you find issues or have improvements, feel free 
 
 * [https://github.com/blakeblackshear/frigate](https://github.com/blakeblackshear/frigate)
 * [https://docs.ultralytics.com/models/yolov9](https://docs.ultralytics.com/models/yolov9)
+* [https://github.com/WongKinYiu/yolov9/tree/main](https://github.com/WongKinYiu/yolov9/tree/main)
 
 ## License
 This project is licensed under the GPL v3.0 License. See the LICENSE file for details.
