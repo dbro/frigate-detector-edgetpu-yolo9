@@ -43,7 +43,10 @@ def main(args):
         print(f"Limiting to first {args.limit} images.")
 
     # 2. Initialize Model
-    model_type = ModelTypeEnum.yologeneric if "yolo" in args.model.lower() else ModelTypeEnum.ssd
+    if args.model_type == "auto":  # guess from the file name
+        model_type = ModelTypeEnum.yologeneric if "yolo" in args.model.lower() else ModelTypeEnum.ssd
+    else:
+        model_type = ModelTypeEnum.yologeneric if args.model_type == "yolo" else ModelTypeEnum.ssd
     
     config = EdgeTpuDetectorConfig(
         model=ModelConfig(
@@ -162,6 +165,8 @@ if __name__ == "__main__":
     parser.add_argument("--size", type=int, default=320, help="Model input size (e.g. 320, 512)")
     parser.add_argument("--coco_ann", required=True, help="Path to instances_val2017.json")
     parser.add_argument("--coco_img_dir", required=True, help="Path to val2017 image directory")
+    parser.add_argument("--model_type", choices=["auto", "yolo", "ssd"], default="auto",
+                        help="auto = YOLO if the file name contains 'yolo', else SSD")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of images (for quick testing)")
     args = parser.parse_args()
     main(args)

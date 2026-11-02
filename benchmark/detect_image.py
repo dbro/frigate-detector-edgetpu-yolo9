@@ -24,7 +24,10 @@ def main(args):
 
     # 2. Initialize Detector
     print(f"Loading model: {args.model}")
-    model_type = ModelTypeEnum.yologeneric if "yolo" in args.model.lower() else ModelTypeEnum.ssd
+    if args.model_type == "auto":  # guess from the file name
+        model_type = ModelTypeEnum.yologeneric if "yolo" in args.model.lower() else ModelTypeEnum.ssd
+    else:
+        model_type = ModelTypeEnum.yologeneric if args.model_type == "yolo" else ModelTypeEnum.ssd
     
     config = EdgeTpuDetectorConfig(
         model=ModelConfig(
@@ -118,6 +121,8 @@ if __name__ == "__main__":
     parser.add_argument("--labels", required=True, help="Path to label map text file")
     parser.add_argument("--output", default="output.jpg", help="Path to save result")
     parser.add_argument("--size", type=int, default=320)
+    parser.add_argument("--model_type", choices=["auto", "yolo", "ssd"], default="auto",
+                        help="auto = YOLO if the file name contains 'yolo', else SSD")
     parser.add_argument("--thresh", type=float, default=0.4, help="Confidence threshold")
     args = parser.parse_args()
     main(args)

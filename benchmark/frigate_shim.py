@@ -178,15 +178,28 @@ class EdgeTpuTfl:
                 self.output_boxes_index = None
                 self.output_classes_index = None
                 
+                # Box tensor: C == 64 (DFL, 4 x 16 bins) is preferred; otherwise
+                # C == 4 ("distlite": ltrb distances regressed directly, in stride units).
+                # The class tensor is the other 3D output with C > 1.
+                for box_channels in (64, 4):
+                    for i, x in enumerate(self.tensor_output_details):
+                        if len(x["shape"]) == 3 and x["shape"][2] == box_channels:
+                            self.output_boxes_index = i
+                            break
+                    if self.output_boxes_index is not None:
+                        break
                 for i, x in enumerate(self.tensor_output_details):
-                    if len(x["shape"]) == 3 and x["shape"][2] == 64:
-                        self.output_boxes_index = i
-                    elif len(x["shape"]) == 3 and x["shape"][2] > 1:
+                    if i != self.output_boxes_index and len(x["shape"]) == 3 and x["shape"][2] > 1:
                         self.output_classes_index = i
                 
                 if self.output_boxes_index is None or self.output_classes_index is None:
                     self.output_classes_index = 0 
                     self.output_boxes_index = 1 
+
+                boxes_shape = tuple(int(v) for v in self.tensor_output_details[self.output_boxes_index]["shape"])
+                scores_shape = tuple(int(v) for v in self.tensor_output_details[self.output_classes_index]["shape"])
+                self.box_decode = "distlite" if boxes_shape[-1] == 4 else "dfl"
+                logger.info(f"YOLO box decode: {self.box_decode} (boxes tensor {boxes_shape}, class tensor {scores_shape})")
         else:
             for x in self.tensor_output_details:
                 if len(x["shape"]) == 3:
@@ -262,7 +275,8 @@ class EdgeTpuTfl:
                 # corresponding to an image size of 320x320, "NC" as number of classes,
                 # "N" as the count that survive after min-score filtering)
                 # TENSOR A) class scores (1, 2100, NC) where NC is the count of classes, and the score values are logits
-                # TENSOR B) box coordinates (1, 2100, 64) encoded as dfl scores
+                # TENSOR B) box coordinates (1, 2100, 64) encoded as dfl scores,
+                #           or (1, 2100, 4) ltrb distances in stride units for "distlite" models
                 # Note that the logit values in tensor (A) should be clamped to the range [-4,+4]
                 # to preserve precision in the useful range between ~2% and 98%
                 # and because NMS requires the min_score parameter to be >= 0
@@ -293,19 +307,23 @@ class EdgeTpuTfl:
                 boxes_details = self.tensor_output_details[self.output_boxes_index]
                 boxes_scale, boxes_zero_point = boxes_details['quantization']
                 # remove candidates with probabilities < threshold
-                boxes_output_quantized_filtered = (self.interpreter.get_tensor(boxes_details['index'])[0])[mask]  # (N, 64)
+                boxes_output_quantized_filtered = (self.interpreter.get_tensor(boxes_details['index'])[0])[mask]  # (N, 64) or (N, 4)
                 boxes_output_filtered = (boxes_output_quantized_filtered.astype(np.float32) - boxes_zero_point) * boxes_scale
 
-                # 2. Decode DFL to distances (ltrb)
-                dfl_distributions = boxes_output_filtered.reshape(-1, 4, self.reg_max)  # (N, 4, 16)
+                # 2. Decode to distances (ltrb)
+                if self.box_decode == "distlite":
+                    # distances are regressed directly; only clamp negatives (same as training/eval)
+                    distances = np.maximum(boxes_output_filtered, 0.0)  # (N, 4)
+                else:
+                    dfl_distributions = boxes_output_filtered.reshape(-1, 4, self.reg_max)  # (N, 4, 16)
 
-                # Softmax over the 16 bins
-                dfl_max = np.max(dfl_distributions, axis=2, keepdims=True)
-                dfl_exp = np.exp(dfl_distributions - dfl_max)
-                dfl_probs = dfl_exp / np.sum(dfl_exp, axis=2, keepdims=True)  # (N, 4, 16)
+                    # Softmax over the 16 bins
+                    dfl_max = np.max(dfl_distributions, axis=2, keepdims=True)
+                    dfl_exp = np.exp(dfl_distributions - dfl_max)
+                    dfl_probs = dfl_exp / np.sum(dfl_exp, axis=2, keepdims=True)  # (N, 4, 16)
 
-                # Weighted sum: (N, 4, 16) * (16,) -> (N, 4)
-                distances = np.einsum('pcr,r->pc', dfl_probs, self.project)
+                    # Weighted sum: (N, 4, 16) * (16,) -> (N, 4)
+                    distances = np.einsum('pcr,r->pc', dfl_probs, self.project)
 
                 # Calculate box corners in pixel coordinates
                 anchors_filtered = self.anchors[mask]
