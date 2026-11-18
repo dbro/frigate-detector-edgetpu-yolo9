@@ -1,6 +1,6 @@
 # frigate-detector-edgetpu-yolo9
 
-***NEW 2.0 version as of November 2026 for Frigate v0.18***
+***NEW 2.1 version as of November 2026 for Frigate v0.18***
 
 First, a brief history of version 1 and 2 of this repo. The official [Frigate](https://github.com/blakeblackshear/frigate) version 0.17 added support to run YOLO v9 models on Google Coral device, based on the model and post-processing code from this repository's version 1.x releases. The [pull request to add YOLO v9 support to the main Frigate repository](https://github.com/blakeblackshear/frigate/pull/21124) was accepted on December 2 2025. Later, in March of 2026 the (Frigate+)[https://docs.frigate.video/plus/] (paid) subscription added YOLO v9s models to run on Coral devices to its offering. In November 2026, a new version 2.0 of this repository introduced a new and incompatible model and detector plugin intended to run on version 0.18 of Frigate. The new v2 model is faster and more accurate than the v.1 model offered by this repo. In comparison with the model currently offered by Frigate+ it is faster but appears to be less accurate when evaluating using publicly available image datasets.
 
@@ -38,7 +38,7 @@ Regarding CPU usage, all YOLO models (pre YOLO v10) use the CPU during post-proc
 
 There is one version of YOLO v9 model weights available for download that can be used with v2 of this plugin:
 
-* [YOLO v9 "small" "slim" 320x320 input size](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.0/yolov9-s-relu6-slim_320_int8_edgetpu.tflite)
+* [YOLO v9 "small" "slim" v2.1 320x320 input size](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.1/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite)
 
 Detection time is approximately 6ms including post-processing steps, allowing 160 detections per second without dropped frames. Note that there can be multiple detections run for a single frame from the video feed, if there are multiple separate areas where motion gets detected.
 
@@ -53,15 +53,16 @@ The ~3ms improvement in detection time comes from the slim head (~2ms), and simp
 
 ## Performance Benchmarks
 
-Recommended: **YOLOv9-s ReLU6 slim v2.0** (2-tensor EdgeTPU layout). On a Coral it is about **6.3 ms** end-to-end and beats the v1.0 release on daytime and night Frigate-style crops. It is not as accurate as the current Frigate+ YOLO v9s model, which requires a paid subscription to Frigate+.
+Recommended: **YOLOv9-s ReLU6 slim v2.1** (2-tensor EdgeTPU layout). On a Coral it is about **6.3 ms** end-to-end and beats the v1.0 release on daytime and night Frigate-style crops. It is not as accurate as the current Frigate+ YOLO v9s model, which requires a paid subscription to Frigate+.
 
 | Model | Classes | Detection time | VIRAT wAP | RainSnow wAP |
 | ----- | ------- | --------- | --------- | ------------ |
-| Frigate+ YOLOv9-s (2026-10) | 46 | 9.51 ms | **54.4** | 15.6 |
-| [YOLOv9-s ReLU6 slim v2.0](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.0/yolov9-s-relu6-slim_320_int8_edgetpu.tflite) (**recommended**) | 17 | **6.25 ms** | 51.5 | **17.2** |
-| [YOLOv9-s ReLU6 v1.0](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v1.0/yolov9-s-relu6-best_320_int8_edgetpu.tflite) | 17 | 9.16 ms | 48.5 | 14.9 |
-| Frigate+ MobileDet (2026-03) | 46 | **5.70 ms** | 41.8 | 9.9 |
-| [SSD/MobileDet](https://github.com/google-coral/test_data/raw/release-frogfish/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite) (Frigate default) | 79 | 6.81 ms | 33.2 | 9.4 |
+| [YOLOv9-s ReLU6 slim v2.1](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.1/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite) (**recommended**) | 18 | **6.25 ms** | **74.3** | **25.0** |
+| Frigate+ YOLOv9-s (2026-10) | 46 | 9.51 ms | 67.9 | 17.6 |
+| [YOLOv9-s ReLU6 slim v2.0](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.0/yolov9-s-relu6-slim_320_int8_edgetpu.tflite) | 17 | **6.25 ms** | 65.4 | 17.9 |
+| [YOLOv9-s ReLU6 v1.0](https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v1.0/yolov9-s-relu6-best_320_int8_edgetpu.tflite) | 17 | 9.16 ms | 61.4 | 17.1 |
+| Frigate+ MobileDet (2026-03) | 46 | **5.70 ms** | 63.7 | 10.5 |
+| [SSD/MobileDet](https://github.com/google-coral/test_data/raw/release-frogfish/ssdlite_mobiledet_coco_qat_postprocess_edgetpu.tflite) (Frigate default) | 79 | 6.81 ms | 57.9 | 11.0 |
 
 **Classes** is how many labels the model outputs (17 = the COCO subset in `labels-coco17.txt`; Frigate+ uses its own map; stock MobileDet is 79-id COCO).
 
@@ -98,11 +99,11 @@ Create a directory on your host system to store the plugin file. For example, yo
 sudo mkdir -p /opt/frigate-plugins
 cd /opt/frigate-plugins
 # download weights
-sudo wget https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.0/yolov9-s-relu6-slim_320_int8_edgetpu.tflite
+sudo wget https://github.com/dbro/frigate-detector-edgetpu-yolo9/releases/download/v2.1/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite
 # download plugin
 sudo wget https://raw.githubusercontent.com/dbro/frigate-detector-edgetpu-yolo9/main/edgetpu_tfl.py
 # download labels
-sudo wget https://raw.githubusercontent.com/dbro/frigate-detector-edgetpu-yolo9/main/labels-coco17.txt
+sudo wget https://raw.githubusercontent.com/dbro/frigate-detector-edgetpu-yolo9/main/labels-coco17plus1.txt
 ```
 
 ### 2. Update docker-compose.yml
@@ -120,8 +121,8 @@ frigate:
   volumes:
     # ... existing volumes ...
     - /opt/frigate-plugins/edgetpu_tfl.py:/opt/frigate/frigate/detectors/plugins/edgetpu_tfl.py:ro
-    - /opt/frigate-plugins/labels-coco17.txt:/opt/frigate/models/labels-coco17.txt:ro
-    - /opt/frigate-plugins/yolov9-s-relu6-slim_320_int8_edgetpu.tflite:/opt/frigate/models/yolov9-s-relu6-slim_320_int8_edgetpu.tflite:ro
+    - /opt/frigate-plugins/labels-coco17plus1.txt:/opt/frigate/models/labels-coco17plus1.txt:ro
+    - /opt/frigate-plugins/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite:/opt/frigate/models/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite:ro
   # ... rest of frigate service ...
 ```
 
@@ -141,8 +142,8 @@ In your config.yml, in the model: section, add the model_type parameter as shown
 ```yaml
 model:
   model_type: yolo-generic
-  labelmap_path: /opt/frigate/models/labels-coco17.txt
-  path: /opt/frigate/models/yolov9-s-relu6-slim_320_int8_edgetpu.tflite
+  labelmap_path: /opt/frigate/models/labels-coco17plus1.txt
+  path: /opt/frigate/models/yolov9-s-relu6-sl21_320_int8_edgetpu.tflite
   # Optionally specify the model dimensions (these are the same as Frigate's default 320x320)
   width: 320
   height: 320

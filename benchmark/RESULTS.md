@@ -3,14 +3,61 @@
 These results compare the YOLOv9-s models from this repository with Frigate's stock Coral model and with
 Frigate+ models. Every model was scored with the same pre- and post-processing as Frigate 0.18 and the same scorer.
 
-## Main table
+## v2.1 (2026-11): held-out scenes
+
+v2.1 adds training data cut from the VIRAT and RainSnow sets below, split by scene. It can therefore only be scored
+fairly on the scenes it never trained on: VIRAT 0001 / 0401 / 0502 (996 crops) and RainSnow Hjorringvej / Ostre
+(783 crops; RS-gray is the same 783 in grayscale). Every model below was re-scored on exactly these crops with the
+same harness. These numbers are **not comparable** with the full-set table further down: the held-out VIRAT scenes
+are easier for cars and heavier on bicycles. Compare rows only within one table.
+
+| model | nc | VIRAT wAP | pers | car | RainSnow wAP | pers | car | RS-gray wAP | rec. threshold | vs 0.7 | person R at rec. threshold |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **v2.1 (slim r6 2t), this release** | 18 | **74.26** | **61.85** | 94.27 | **24.97** | **11.15** | **49.76** | **18.00** | **0.60** | **−0.10** | **37.9 %** |
+| Frigate+ yolov9s ¹ | 46 | 67.86 | 51.50 | 94.28 | 17.63 | 5.28 | 39.53 | 16.41 | 0.75 | +0.05 | 36.0 % |
+| Frigate+ yolov9c 640 ¹ ² | 46 | 68.02 | 51.73 | **95.24** | 17.07 | 6.13 | 36.57 | 15.70 | 0.85 | +0.15 | 34.8 % |
+| v2.0 (slim r6 2t) | 17 | 65.44 | 48.59 | 92.35 | 17.91 | 6.39 | 38.42 | 12.56 | 0.70 | 0.00 | 29.5 % |
+| Frigate+ MobileDet ³ | 46 | 63.73 | 50.44 | 85.94 | 10.49 | 0.48 | 27.95 | 12.86 | 0.70 | 0.00 | 25.8 % |
+| v1.0 COCO-only | 17 | 61.43 | 45.09 | 87.43 | 17.09 | 10.56 | 29.25 | 14.17 | 0.70 | 0.00 | 23.1 % |
+| MobileDet COCO (Frigate default) ³ | 79 | 57.85 | 39.56 | 88.32 | 10.95 | 3.67 | 23.90 | 9.92 | 0.735 | +0.035 | 12.5 % |
+
+v1.0, v2.0 and v2.1 accuracy is from the int8 TFLite model on a CPU interpreter, which matches the Coral to within
+0.35 points (see the check further down). v2.1's 18th class, `animal`, is not scored here: none of these sets label
+animals, so animal detections are ignored like any other unscored label.
+
+¹ ONNX fp32 on OpenVINO CPU, not Coral. On the full sets the CPU fp32 yolov9s scored 1–2 wAP higher than its published
+Coral row, so read these rows as slightly optimistic for a Coral.
+² yolov9c 640 does not fit on a Coral; reference only.
+³ CPU TFLite build standing in for the EdgeTPU build. For Frigate+ MobileDet this matched the Coral row to within
+0.06 points.
+
+### Recommended thresholds
+
+Frigate's `threshold` (default 0.7) should be adjusted when you change models, because some models are more
+"confident" in their scores than others. **rec. threshold** is the lowest score at which person precision stays at or
+above 90 % on the combined VIRAT + RainSnow held-out crops (1010 person boxes); **vs 0.7** is how far to move
+Frigate's usual 0.7 to get the same 90 % person precision with that model. At its recommended 0.60, v2.1 finds about
+8 points more of the people than v2.0 does at 0.70, at the same precision.
+
+![Person precision vs recall on the held-out crops](pr_person_heldout.png)
+
+Markers show detector scores 0.4 / 0.5 / 0.6 / 0.7 on each curve; the dotted line is 90 % precision.
+
+Caveats:
+- Frigate applies `threshold` to a track's median score, not to single detections, so treat these values as a
+  starting point and adjust for your cameras.
+- The crops always contain objects, so these numbers understate false alarms on empty scenes.
+- The detector returns nothing below score 0.4, so no threshold below 0.4 is meaningful.
+- RainSnow has only 136 person boxes, so the combined numbers are dominated by VIRAT.
+
+## v2.0 release table (full sets, 2026-11)
 
 | model | nc | source | Coral e2e ms | VIRAT wAP | pers | car | R@.7 | RainSnow wAP | pers | car | RS-gray wAP |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | Frigate+ yolov9s (2026-10) | 46 | Coral | **9.51** | **54.35** | 41.15 | 76.40 | **39.3** | 15.62 | 5.48 | 33.67 | 13.50 |
 | slim hs (6t) | 17 | CPU int8† / Coral | **9.17** | 52.01 | 39.95 | 71.42 | 29.6‡ | **20.47** | 12.36 | 35.48 | **15.18** |
 | fat r6 (ReLU6, DFL head) | 17 | CPU int8 / Coral | **9.04** | 51.69 | 39.64 | 71.13 | 25.5 | 15.61 | 7.13 | 30.88 | 11.00 |
-| **slim r6 (2t), this release** | 17 | CPU int8 / Coral | **6.25** | 51.47 | 39.09 | 71.32 | 26.6 | 17.22 | 8.07 | 33.75 | 11.67 |
+| **slim r6 (2t), v2.0 release** | 17 | CPU int8 / Coral | **6.25** | 51.47 | 39.09 | 71.32 | 26.6 | 17.22 | 8.07 | 33.75 | 11.67 |
 | v1.0 COCO-only (ReLU6, DFL head) | 17 | CPU int8* / Coral | **9.16** | 48.52 | 36.77 | 67.32 | 17.1 | 14.94 | 8.18 | 27.31 | 13.09 |
 | Frigate+ MobileDet | 46 | Coral | **5.70** | 41.82 | 37.97 | 47.75 | 22.1 | 9.91 | 1.95 | 23.92 | 9.97 |
 | MobileDet COCO (Frigate default) | 79 | Coral | **6.81** | 33.23 | 27.39 | 42.13 | 12.3 | 9.44 | 3.54 | 19.99 | 8.85 |
@@ -26,9 +73,12 @@ Columns:
 - **source**: where the accuracy numbers come from. "CPU int8 / Coral" means accuracy from the int8 TFLite model on a
   CPU interpreter (see the check below), and speed from a Coral.
 
-## Which model to use
+## Which model to use (v2.0 release)
 
-- **slim r6, 2-tensor layout (2t)** is the model for this release. It is about as accurate as the
+For v2.1, see the held-out table above. The notes below compare the v2.0-era models on the full sets.
+
+
+- **slim r6, 2-tensor layout (2t)** was the model for the v2.0 release. It is about as accurate as the
   older "fat" ReLU6 model on daytime crops (51.5 vs 51.7 wAP), better at night (17.2 vs 15.6), and about 30 % faster
   on the Coral (6.25 vs 9.04 ms). It beats v1.0 on every set except RainSnow gray.
 - **slim hs** (hard-swish activations) is more accurate, especially at night and in gray (IR-like) footage,
@@ -47,6 +97,8 @@ resize). Scored classes: person, car, bicycle.
 - **RainSnow** (AAU RainSnow Traffic Surveillance Dataset, CC BY 4.0, Bahnsen & Moeslund, Aalborg University):
   1588 night and dusk crops from 11 sequences, mostly small objects in rain and snow.
 - **RS-gray**: the same RainSnow crops converted to grayscale, as a stand-in for IR night footage.
+- **Held-out subsets (v2.1)**: VIRAT scenes 0001 / 0401 / 0502 (996 crops) and RainSnow sequences Hjorringvej / Ostre
+  (783 crops). v2.1 trained on crops from the other VIRAT scenes and RainSnow sequences, never these.
 
 Frigate+ models use their own label map. To keep the comparison fair, only classes that every model has are scored,
 and detections on unscored objects are ignored rather than counted as false positives.
@@ -93,7 +145,7 @@ The gaps are at most 0.35 points, much smaller than the gaps between models.
 | model family | outputs | box decode |
 |---|---|---|
 | v1.0 / fat r6 (DFL) | `(1,2100,64)` DFL box logits + `(1,2100,17)` class logits | softmax over 16 bins per side, expectation |
-| slim **2t** (this release) | `(1,2100,4)` ltrb distances + `(1,2100,17)` class logits | `max(d, 0)`, no softmax |
+| slim **2t** (v2.0, v2.1) | `(1,2100,4)` ltrb distances + `(1,2100,17)` class logits (`(1,2100,18)` for v2.1) | `max(d, 0)`, no softmax |
 | slim 6t (research) | 3 × `(1,H,W,4)` + 3 × `(1,H,W,17)`, per scale | same as 2t, per scale |
 
 All three layouts decode with the same anchors (cell centre + 0.5) and strides (8, 16, 32):
